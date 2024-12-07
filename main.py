@@ -18,6 +18,76 @@ handler.setFormatter(formatter)
 logger.addHandler(handler)
 
 RAW_DATA_PATH = Path(r'./raw_data/')
+SAVE_FILE_PATH = Path(r'./parsed_data/final_df.pkl')
+
+RELEVANT_GRID_FEATURES = {
+                        "Grid_ID_19": "grid_id",
+                        "Borough": "borough",
+                        "Zone": "zone",
+                        "Area_km2": "area",
+                        }
+
+RELEVANT_ROAD_FEATURES = {
+                        "TOID": "toid",
+                        "Road Classification": "road_type",
+                        " Speed (km/hr) - Except Buses ": "road_speed_non_bus",
+                        " Speed (km/hr) - Buses Only ": "road_speed_bus",
+                        " AADT Motorcycle ": "aadt_motorcycle",
+                        " AADT Taxi ": "aadt_taxi",
+                        " AADT Petrol Car ": "aadt_petrol_car",
+                        " AADT Diesel Car ": "aadt_diesel_car",
+                        " AADT Electric Car ": "aadt_electric_car",
+                        " AADT Petrol PHV ": "aadt_petrol_phv",
+                        " AADT Diesel PHV ": "aadt_diesel_phv",
+                        " AADT Electric PHV ": "aadt_electric_phv",
+                        " AADT Petrol LGV ": "aadt_petrol_lgv",
+                        " AADT Diesel LGV ": "aadt_diesel_lgv",
+                        " AADT Electric LGV ": "aadt_electric_lgv",
+                        " AADT 2019 - HGVs - Rigid - 2 Axles ": "aadt_hgv_rigid_2_axles",
+                        " AADT 2019 - HGVs - Rigid - 3 Axles ": "aadt_hgv_rigid_3_axles",
+                        " AADT 2019 - HGVs - Rigid - 4 or more Axles ": "aadt_hgv_rigid_4_or_more_axles",
+                        " AADT 2019 - HGVs - Articulated - 3 to 4 Axles ": "aadt_hgv_articulated_3_to_4_axles",
+                        " AADT 2019 - HGVs - Articulated - 5 Axles ": "aadt_hgv_articulated_5_axles",
+                        " AADT 2019 - HGVs - Articulated - 6 Axles ": "aadt_hgv_articulated_6_axles",
+                        " AADT 2019 - Buses ": "aadt_buses",
+                        " AADT 2019 - Coaches ": "aadt_coaches",
+                        " AADT 2019 - Total ": "aadt_total",
+                        " VKM Motorcycle ": "vkm_motorcycle",
+                        " VKM Taxi ": "vkm_taxi",
+                        " VKM Petrol Car ": "vkm_petrol_car",
+                        " VKM Diesel Car ": "vkm_diesel_car",
+                        " VKM Electric Car ": "vkm_electric_car",
+                        " VKM Petrol PHV ": "vkm_petrol_phv",
+                        " VKM Diesel PHV ": "vkm_diesel_phv",
+                        " VKM Electric PHV ": "vkm_electric_phv",
+                        " VKM Petrol LGV ": "vkm_petrol_lgv",
+                        " VKM Diesel LGV ": "vkm_diesel_lgv",
+                        " VKM Electric LGV ": "vkm_electric_lgv",
+                        " VKM 2019 - HGVs - Rigid - 2 Axles ": "vkm_hgv_rigid_2_axles",
+                        " VKM 2019 - HGVs - Rigid - 3 Axles ": "vkm_hgv_rigid_3_axles",
+                        " VKM 2019 - HGVs - Rigid - 4 or more Axles ": "vkm_hgv_rigid_4_or_more_axles",
+                        " VKM 2019 - HGVs - Articulated - 3 to 4 Axles ": "vkm_hgv_articulated_3_to_4_axles",
+                        " VKM 2019 - HGVs - Articulated - 5 Axles ": "vkm_hgv_articulated_5_axles",
+                        " VKM 2019 - HGVs - Articulated - 6 Axles ": "vkm_hgv_articulated_6_axles",
+                        " VKM 2019 - Buses ": "vkm_buses",
+                        " VKM 2019 - Coaches ": "vkm_coaches",
+                        " VKM 2019 - Total ": "vkm_total"
+                        }
+
+def read_excel_into_df_with_specific_columns(file_path, columns={}):
+    df = pd.read_excel(file_path, usecols=columns.keys())
+    df.rename(columns=columns, inplace=True)
+    print(df.iloc[0])
+    return df
+
+def read_shape_into_gdf_with_specific_columns(file_path, columns={}):
+    gdf = gpd.read_file(file_path)
+    geometry_name = gdf.geometry.name
+    if geometry_name not in columns:
+        columns[geometry_name] = geometry_name
+    gdf = gdf[columns.keys()]
+    gdf.rename(columns=columns, inplace=True)
+    return gdf
 
 class BreakOutError(Exception):
     pass
@@ -25,11 +95,12 @@ class BreakOutError(Exception):
 class GridEmissions:
     def __init__(self):
         grid_shape_path = RAW_DATA_PATH / "supporting_data/grid/LAEI2019_Grid.shp"
-        self.df = gpd.read_file(grid_shape_path, columns=["Grid_ID_19"])
+        self.df = gpd.read_file(grid_shape_path, columns=None)
+        print(self.df.iloc[0])
         self.df["grid_id"] = self.df["Grid_ID_19"].astype(int)
         self.df.drop(columns="Grid_ID_19", inplace=True)
     
-    def _close_multiline(self, multiline, tolerance):
+    def _bridge_multiline(self, multiline, tolerance):
         multiline_list = list(multiline.geoms)
         start_again = True
         while start_again:
@@ -83,7 +154,7 @@ class GridEmissions:
         if isinstance(merged_geom, shapely.geometry.MultiLineString):
             logger.warning("Found non-contiguity in LinkID %s.", gdf.name)
             if non_contiguity_tolerance:
-                merged_geom = self._close_multiline(merged_geom, non_contiguity_tolerance)
+                merged_geom = self._bridge_multiline(merged_geom, non_contiguity_tolerance)
                 if not isinstance(merged_geom, shapely.geometry.MultiLineString):
                     logging.info("Fixed contiguity.")
                 else:
@@ -97,17 +168,6 @@ class GridEmissions:
 
         # Return the finalised gdf for this group.
         return result
-
-    def _find_total_intersecting_length_by_grid(self, df2, new_column):
-        df2 = df2.to_crs(self.df.crs)
-        overlap = gpd.overlay(df1=self.df, df2=df2, how="intersection", keep_geom_type=False)
-        overlap[new_column] = overlap.geometry.length
-
-        result = overlap.groupby('grid_id')[new_column].sum().reset_index()
-        result['grid_id'] = result['grid_id'].astype(object)
-
-        self.df = self.df.merge(result, on='grid_id', how='left')
-        self.df[new_column] = self.df[new_column].fillna(0.0).astype(float).apply(lambda x: round(x, 6))
     
     def _find_total_intersecting_agg_by_grid(self, df2, agg):
         df2 = df2.to_crs(self.df.crs)
@@ -129,8 +189,9 @@ class GridEmissions:
         # resulting in a new df containing one entry per link (with the resulting lines merged via shapely).
         compiled_gdf = gdf.groupby(link_id_col).apply(self._process_links_groupby, include_groups=False, retain_fields=retain_fields).reset_index(drop=True)
 
-        # Add total length of links per grid
-        self._find_total_intersecting_length_by_grid(compiled_gdf, f"total_{link_type}_length")
+        # Find total length of link_type within each grid
+        agg_length_by_link = {f"total_{link_type}_length": ("geometry", lambda x: np.sum(x.length))}
+        self._find_total_intersecting_agg_by_grid(compiled_gdf, agg_length_by_link)
 
         # Now find a list of stations (start and/or end points on the each link)
         # Extract start and end points
@@ -146,10 +207,10 @@ class GridEmissions:
 
         all_points_gdf = all_points_gdf.drop_duplicates(subset="geometry").reset_index(drop=True)
 
-        agg_by_link = {f"total_{link_type}_stations": ("geometry", "size"),
-                       f"total_{link_type}_link_terminations": (f"total_{link_type}_link_terminations", "sum")}
+        agg_stations_by_link = {f"total_{link_type}_stations": ("geometry", np.size),
+                               f"total_{link_type}_link_terminations": (f"total_{link_type}_link_terminations", np.sum)}
 
-        self._find_total_intersecting_agg_by_grid(all_points_gdf, agg_by_link)
+        self._find_total_intersecting_agg_by_grid(all_points_gdf, agg_stations_by_link)
         # Add count of "stations" (either end of the line) to the main df per grid
 
     def add_emissions_data(self):
@@ -176,31 +237,50 @@ class GridEmissions:
     
     def add_road_data(self):
         shape_file_path = RAW_DATA_PATH / "supporting_data/road/shape/laei-2019-major-roads-final-unique-toids-flows-speeds-osgb.shp"
-        gdf = gpd.read_file(shape_file_path, columns=["TOID"])
+        gdf = read_shape_into_gdf_with_specific_columns(shape_file_path, columns={})
 
         # Excel contains more data, but we need spatial data to geographically merge into our 1km grid...
         # We can merge them by index.
+        relevant_columns = {"TOID": "toid",
+                            "Road Classification": "road_type",
+                            "LAEI Zone": "laei_zone"}
         excel_file_path = RAW_DATA_PATH / "supporting_data/road/excel/laei-2019-major-roads-vkm-flows-speeds.xlsx"
-        df = pd.read_excel(excel_file_path)
+        df = read_excel_into_df_with_specific_columns(excel_file_path, columns=RELEVANT_ROAD_FEATURES)
 
         gdf = gdf.merge(df, left_index=True, right_index=True)
+        print(gdf.iloc[0])
 
-        print(gdf[gdf["TOID_x"] != gdf["TOID_y"]])
+        # Project road dgf to same CRS as self.df
+        gdf = gdf.to_crs(self.df.crs)
 
-        print(gdf.iloc[121])
-        print(gdf.iloc[121].geometry.length)
-        self._find_total_intersecting_length_by_grid(gdf, "total_road_length")
+        # Calculate overlap of roads on a per-grid basis
+        overlap = gpd.overlay(df1=self.df, df2=gdf, how="intersection", keep_geom_type=False)
+        overlap['length'] = overlap.geometry.length
 
-        print([col for col in gdf.columns.values if col.startswith("F_")])
-        agg_by_link = {f"total_road_count_by_toid": ("geometry", "size"),
-                       f"average_road_speed_kph": (f"Sp_kph", "mean")}
-        self._find_total_intersecting_agg_by_grid(gdf, agg_by_link)
+        for relevant_road_feature in ("road_type", "road_speed_bus", "road_speed_non_bus"):
+            road_grouping = overlap.groupby(['grid_id', relevant_road_feature])
+
+            # Calculate road lengths and pivot into unique columns
+            road_lengths = road_grouping['length'].sum().reset_index()
+            road_lengths_pivot = road_lengths.pivot(index='grid_id', columns=relevant_road_feature, values='length')
+            road_lengths_pivot.columns = [f'total_road_length_{col}' for col in road_lengths_pivot.columns]
+            self.df = self.df.merge(road_lengths_pivot, how='left', left_on='grid_id', right_index=True)
+
+            # Calculate number of roads (respective of TOID)
+            road_counts = road_grouping.size().reset_index(name='road_count')
+            road_counts_pivot = road_counts.pivot(index='grid_id', columns=relevant_road_feature, values="road_count")
+            road_counts_pivot.columns = [f'total_road_count_{col}' for col in road_lengths_pivot.columns]
+            self.df = self.df.merge(road_counts_pivot, how='left', left_on='grid_id', right_index=True)
+        
+
+        
+
 
 if __name__ == "__main__":
     grid = GridEmissions()
-    #grid.add_emissions_data()
-    #grid.add_rail_data()
-    #grid.add_shipping_data()
+    grid.add_emissions_data()
+    grid.add_rail_data()
+    grid.add_shipping_data()
     grid.add_road_data()
-    #print(grid.df[(grid.df["total_rail_stations"] != 0.0) & (grid.df["total_shipping_stations"] != 0.0)])
-    print(grid.df[(grid.df["total_road_length"] != 0.0)])
+    if not SAVE_FILE_PATH.exists():
+        grid.df.to_pickle(SAVE_FILE_PATH)
