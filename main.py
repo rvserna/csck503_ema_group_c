@@ -309,4 +309,3 @@ if __name__ == "__main__":
     grid.df.drop(columns="geometry", inplace=True)
     if not SAVE_FILE_PATH.exists():
         grid.df.to_pickle(SAVE_FILE_PATH)
-    grid.df.to_csv("test.csv")
