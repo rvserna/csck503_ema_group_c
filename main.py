@@ -28,7 +28,6 @@ RELEVANT_GRID_FEATURES = {
                         }
 
 RELEVANT_ROAD_FEATURES = {
-                        "TOID": "toid",
                         "Road Classification": "road_type",
                         " Speed (km/hr) - Except Buses ": "road_speed_non_bus",
                         " Speed (km/hr) - Buses Only ": "road_speed_bus",
@@ -49,9 +48,8 @@ RELEVANT_ROAD_FEATURES = {
                         " AADT 2019 - HGVs - Articulated - 3 to 4 Axles ": "aadt_hgv_articulated_3_to_4_axles",
                         " AADT 2019 - HGVs - Articulated - 5 Axles ": "aadt_hgv_articulated_5_axles",
                         " AADT 2019 - HGVs - Articulated - 6 Axles ": "aadt_hgv_articulated_6_axles",
-                        " AADT 2019 - Buses ": "aadt_buses",
-                        " AADT 2019 - Coaches ": "aadt_coaches",
-                        " AADT 2019 - Total ": "aadt_total",
+                        " AADT 2019 - Buses ": "aadt_bus",
+                        " AADT 2019 - Coaches ": "aadt_coach",
                         " VKM Motorcycle ": "vkm_motorcycle",
                         " VKM Taxi ": "vkm_taxi",
                         " VKM Petrol Car ": "vkm_petrol_car",
@@ -69,15 +67,13 @@ RELEVANT_ROAD_FEATURES = {
                         " VKM 2019 - HGVs - Articulated - 3 to 4 Axles ": "vkm_hgv_articulated_3_to_4_axles",
                         " VKM 2019 - HGVs - Articulated - 5 Axles ": "vkm_hgv_articulated_5_axles",
                         " VKM 2019 - HGVs - Articulated - 6 Axles ": "vkm_hgv_articulated_6_axles",
-                        " VKM 2019 - Buses ": "vkm_buses",
-                        " VKM 2019 - Coaches ": "vkm_coaches",
-                        " VKM 2019 - Total ": "vkm_total"
+                        " VKM 2019 - Buses ": "vkm_bus",
+                        " VKM 2019 - Coaches ": "vkm_coach",
                         }
 
 def read_excel_into_df_with_specific_columns(file_path, columns={}):
     df = pd.read_excel(file_path, usecols=columns.keys())
     df.rename(columns=columns, inplace=True)
-    print(df.iloc[0])
     return df
 
 def read_shape_into_gdf_with_specific_columns(file_path, columns={}):
@@ -95,11 +91,8 @@ class BreakOutError(Exception):
 class GridEmissions:
     def __init__(self):
         grid_shape_path = RAW_DATA_PATH / "supporting_data/grid/LAEI2019_Grid.shp"
-        self.df = gpd.read_file(grid_shape_path, columns=None)
-        print(self.df.iloc[0])
-        self.df["grid_id"] = self.df["Grid_ID_19"].astype(int)
-        self.df.drop(columns="Grid_ID_19", inplace=True)
-    
+        self.df = read_shape_into_gdf_with_specific_columns(grid_shape_path, columns=RELEVANT_GRID_FEATURES)
+
     def _bridge_multiline(self, multiline, tolerance):
         multiline_list = list(multiline.geoms)
         start_again = True
@@ -141,7 +134,6 @@ class GridEmissions:
         return multiline
 
     def _process_links_groupby(self, gdf, retain_fields=[], non_contiguity_tolerance=200):
-
         # Retain the original gdf's CRS
         crs = gdf.crs
 
@@ -181,8 +173,6 @@ class GridEmissions:
     def _add_link_data(self, link_type, rel_path, link_id_col, retain_fields=[]):
         file_path = RAW_DATA_PATH / rel_path
         gdf = gpd.read_file(file_path, columns=None)
-        print(gdf.iloc[0])
-        print(gdf.iloc[0].geometry.length)
 
         # Preprocess gdf
         # gdf contains multiple entries for same link so need to merge rows by link_id_col
@@ -218,6 +208,7 @@ class GridEmissions:
         in_scope_dfs = [self.df]
         for path in emissions_summary_path.rglob("*-all-sources.shp"):
             logger.debug(f"Loading file %s", path)
+
             # TODO: Consider using Excel instead as geo-overhead is uneeded (already in grid).
             emissions_df = gpd.read_file(path,
                                         columns=("pollutant", "all_2019"))
@@ -241,40 +232,71 @@ class GridEmissions:
 
         # Excel contains more data, but we need spatial data to geographically merge into our 1km grid...
         # We can merge them by index.
-        relevant_columns = {"TOID": "toid",
-                            "Road Classification": "road_type",
-                            "LAEI Zone": "laei_zone"}
         excel_file_path = RAW_DATA_PATH / "supporting_data/road/excel/laei-2019-major-roads-vkm-flows-speeds.xlsx"
         df = read_excel_into_df_with_specific_columns(excel_file_path, columns=RELEVANT_ROAD_FEATURES)
 
         gdf = gdf.merge(df, left_index=True, right_index=True)
-        print(gdf.iloc[0])
+        non_numeric = ("geometry", "road_type")
+        numeric_cols = [col for col in gdf.columns if col not in non_numeric]
+        gdf[numeric_cols] = gdf[numeric_cols].apply(pd.to_numeric, errors='coerce').fillna(0)
 
         # Project road dgf to same CRS as self.df
         gdf = gdf.to_crs(self.df.crs)
 
+        # Preprocess data
+        road_type_lookup = {"A": "a_road",
+                            "B": "b_road",
+                            "C": "c_unclassified_road",
+                            "M": "motorway"}
+        gdf["road_type"] = gdf["road_type"].apply(lambda x: "motorway" if x == "A1M" else road_type_lookup[x[0]])
+
+        gdf["toid_road_length"] = gdf.geometry.length
+
         # Calculate overlap of roads on a per-grid basis
         overlap = gpd.overlay(df1=self.df, df2=gdf, how="intersection", keep_geom_type=False)
         overlap['length'] = overlap.geometry.length
+        overlap['ratio'] = overlap["length"] / overlap["toid_road_length"]
+        # Apply ratio to VKM as road can be split by grid.
+        vkm_cols = [col for col in overlap.columns if col.startswith('vkm_')]
+        for col in vkm_cols:
+            overlap[col] = overlap[col] * overlap['ratio']
+        aadt_cols = [col for col in overlap.columns if col.startswith('aadt_')]
+        overlap_by_grid_id = overlap.groupby("grid_id")
+        vkm_sums = overlap_by_grid_id[vkm_cols].sum()
+        aadt_sums = overlap_by_grid_id[aadt_cols].sum()
+        self.df = self.df.merge(vkm_sums, how='left', left_on='grid_id', right_index=True)
+        self.df = self.df.merge(aadt_sums, how='left', left_on='grid_id', right_index=True)
 
-        for relevant_road_feature in ("road_type", "road_speed_bus", "road_speed_non_bus"):
-            road_grouping = overlap.groupby(['grid_id', relevant_road_feature])
 
-            # Calculate road lengths and pivot into unique columns
-            road_lengths = road_grouping['length'].sum().reset_index()
-            road_lengths_pivot = road_lengths.pivot(index='grid_id', columns=relevant_road_feature, values='length')
-            road_lengths_pivot.columns = [f'total_road_length_{col}' for col in road_lengths_pivot.columns]
-            self.df = self.df.merge(road_lengths_pivot, how='left', left_on='grid_id', right_index=True)
+        # Get road details by road_type
+        road_grouping = overlap.groupby(["grid_id", "road_type"])
 
-            # Calculate number of roads (respective of TOID)
-            road_counts = road_grouping.size().reset_index(name='road_count')
-            road_counts_pivot = road_counts.pivot(index='grid_id', columns=relevant_road_feature, values="road_count")
-            road_counts_pivot.columns = [f'total_road_count_{col}' for col in road_lengths_pivot.columns]
-            self.df = self.df.merge(road_counts_pivot, how='left', left_on='grid_id', right_index=True)
-        
+        # Calculate road lengths and pivot into unique columns
+        road_lengths = road_grouping["length"].sum().reset_index()
+        road_lengths_pivot = road_lengths.pivot(index="grid_id", columns="road_type", values="length")
+        road_lengths_pivot.columns = [f'total_road_length_{col}' for col in road_lengths_pivot.columns]
+        self.df = self.df.merge(road_lengths_pivot, how='left', left_on='grid_id', right_index=True)
 
-        
+        # Calculate number of roads (respective of TOID)
+        road_counts = road_grouping.size().reset_index(name="road_count")
+        road_counts_pivot = road_counts.pivot(index="grid_id", columns="road_type", values="road_count")
+        road_counts_pivot.columns = [f"total_road_count_{col}" for col in road_counts_pivot.columns]
+        self.df = self.df.merge(road_counts_pivot, how="left", left_on="grid_id", right_index=True)
 
+        # Calculate average speeds on roads per grid
+        aggregated_data = overlap.groupby("grid_id").agg(**{"mean_road_speed_non_bus": ("road_speed_non_bus", "mean"),
+                                        "mean_road_speed_bus": ("road_speed_bus", "mean")})
+        self.df = self.df.merge(aggregated_data, how='left', on='grid_id')
+
+    def encode_categorial_data(self, one_hot=[], ordinal={}):
+        for col in one_hot:
+            one_hot_encoded = pd.get_dummies(self.df[col], prefix=col)
+            self.df = pd.concat([self.df, one_hot_encoded], axis=1)
+        self.df.drop(columns=one_hot, inplace=True)
+
+        for col, order in ordinal.items():
+            ordinal_mapping = {category: index for index, category in enumerate(order)}
+            self.df[col] = self.df[col].map(ordinal_mapping)
 
 if __name__ == "__main__":
     grid = GridEmissions()
@@ -282,5 +304,9 @@ if __name__ == "__main__":
     grid.add_rail_data()
     grid.add_shipping_data()
     grid.add_road_data()
+    grid.encode_categorial_data(one_hot=["borough"],
+                                ordinal={"zone": ("NonGLA", "OuterULEX", "InnerULEX", "Central")})
+    grid.df.drop(columns="geometry", inplace=True)
     if not SAVE_FILE_PATH.exists():
         grid.df.to_pickle(SAVE_FILE_PATH)
+    grid.df.to_csv("test.csv")
