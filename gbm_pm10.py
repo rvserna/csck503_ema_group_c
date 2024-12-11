@@ -14,7 +14,7 @@ df = pd.read_pickle(data_path)
 # Specify the target variable (PM10 only)
 label = "total_pollutant_pm10_2019"
 
-# Features (X) will be all columns except the label (PM10)
+# Features (X) will be all columns except the label (PM10) and grid_id
 X = df.drop(columns=[label, 'grid_id'])
 y = df[label]
 
