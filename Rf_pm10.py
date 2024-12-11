@@ -54,7 +54,7 @@ r2 = r2_score(y_test, y_pred)
 print("Mean Absolute Error:", mae)
 print("R^2 Score:", r2)
 
-# Create a visualization of Actual vs Predicted for NOX emissions
+# Create a visualization of Actual vs Predicted for PM10 emissions
 plt.figure(figsize=(10, 6))
 plt.scatter(y_test, y_pred, alpha=0.5)
 plt.plot([y_test.min(), y_test.max()], [y_test.min(), y_test.max()], color='red', linestyle='--', linewidth=2)
