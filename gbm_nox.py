@@ -15,7 +15,7 @@ df = pd.read_pickle(data_path)
 label = "total_pollutant_nox_2019"
 
 # Features (X) will be all columns except the label (NOx)
-X = df.drop(columns=[label])
+X = df.drop(columns=[label, 'grid_id'])
 y = df[label]
 
 # Split data into 2 sets, training and test
