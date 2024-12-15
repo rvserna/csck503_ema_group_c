@@ -5,17 +5,7 @@ import shapely
 import matplotlib.pyplot as plt
 from pathlib import Path
 
-import logging
-import sys
-
-logger = logging.getLogger()
-logger.setLevel(logging.DEBUG)
-
-handler = logging.StreamHandler(sys.stdout)
-handler.setLevel(logging.DEBUG)
-formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
-handler.setFormatter(formatter)
-logger.addHandler(handler)
+from logging_utils import logger
 
 RAW_DATA_PATH = Path(r'./raw_data/')
 SAVE_FILE_PATH = Path(r'./parsed_data/final_df.pkl')
@@ -148,9 +138,9 @@ class GridEmissions:
             if non_contiguity_tolerance:
                 merged_geom = self._bridge_multiline(merged_geom, non_contiguity_tolerance)
                 if not isinstance(merged_geom, shapely.geometry.MultiLineString):
-                    logging.info("Fixed contiguity.")
+                    logger.info("Fixed contiguity.")
                 else:
-                    logging.warning("Failed to fix contiguity.")
+                    logger.warning("Failed to fix contiguity.")
         # Create a new GeoDataFrame from the merged geometry, retaining the CRS
         result = gpd.GeoDataFrame({"geometry": [merged_geom]}, crs=crs)
 
@@ -252,6 +242,9 @@ class GridEmissions:
 
         gdf["toid_road_length"] = gdf.geometry.length
 
+        # Stage data into a temp df for easier clean-up at the end (e.g. filling NAN)
+        temp_df = self.df[["grid_id"]]
+
         # Calculate overlap of roads on a per-grid basis
         overlap = gpd.overlay(df1=self.df, df2=gdf, how="intersection", keep_geom_type=False)
         overlap['length'] = overlap.geometry.length
@@ -264,8 +257,8 @@ class GridEmissions:
         overlap_by_grid_id = overlap.groupby("grid_id")
         vkm_sums = overlap_by_grid_id[vkm_cols].sum()
         aadt_sums = overlap_by_grid_id[aadt_cols].sum()
-        self.df = self.df.merge(vkm_sums, how='left', left_on='grid_id', right_index=True)
-        self.df = self.df.merge(aadt_sums, how='left', left_on='grid_id', right_index=True)
+        temp_df = temp_df.merge(vkm_sums, how='left', left_on='grid_id', right_index=True)
+        temp_df = temp_df.merge(aadt_sums, how='left', left_on='grid_id', right_index=True)
 
 
         # Get road details by road_type
@@ -275,18 +268,21 @@ class GridEmissions:
         road_lengths = road_grouping["length"].sum().reset_index()
         road_lengths_pivot = road_lengths.pivot(index="grid_id", columns="road_type", values="length")
         road_lengths_pivot.columns = [f'total_road_length_{col}' for col in road_lengths_pivot.columns]
-        self.df = self.df.merge(road_lengths_pivot, how='left', left_on='grid_id', right_index=True)
+        temp_df = temp_df.merge(road_lengths_pivot, how='left', left_on='grid_id', right_index=True)
 
         # Calculate number of roads (respective of TOID)
         road_counts = road_grouping.size().reset_index(name="road_count")
         road_counts_pivot = road_counts.pivot(index="grid_id", columns="road_type", values="road_count")
         road_counts_pivot.columns = [f"total_road_count_{col}" for col in road_counts_pivot.columns]
-        self.df = self.df.merge(road_counts_pivot, how="left", left_on="grid_id", right_index=True)
+        temp_df = temp_df.merge(road_counts_pivot, how="left", left_on="grid_id", right_index=True)
 
         # Calculate average speeds on roads per grid
         aggregated_data = overlap.groupby("grid_id").agg(**{"mean_road_speed_non_bus": ("road_speed_non_bus", "mean"),
                                         "mean_road_speed_bus": ("road_speed_bus", "mean")})
-        self.df = self.df.merge(aggregated_data, how='left', on='grid_id')
+        temp_df = temp_df.merge(aggregated_data, how='left', on='grid_id')
+
+        temp_df.fillna(value=0, inplace=True)
+        self.df = self.df.merge(temp_df, how='left', on='grid_id')
 
     def encode_categorial_data(self, one_hot=[], ordinal={}):
         for col in one_hot:
@@ -309,3 +305,7 @@ if __name__ == "__main__":
     grid.df.drop(columns="geometry", inplace=True)
     if not SAVE_FILE_PATH.exists():
         grid.df.to_pickle(SAVE_FILE_PATH)
+    pd.set_option('display.max_rows', None)
+    pd.set_option('display.max_columns', None)
+    pd.set_option('display.width', None)
+    print(grid.df.iloc[1000])
