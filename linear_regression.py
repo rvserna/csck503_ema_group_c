@@ -4,7 +4,7 @@ import matplotlib.pyplot as plt
 from sklearn.model_selection import train_test_split
 from sklearn.linear_model import LinearRegression
 from sklearn.preprocessing import StandardScaler
-from sklearn.metrics import mean_squared_error, r2_score
+from sklearn.metrics import mean_squared_error, mean_absolute_error, r2_score
 
 from ml_utils import remove_outliers_by_iqr
 
@@ -52,10 +52,12 @@ def linear_regression_pollution(pollutant, include_other_pollutants=False, remov
     y_test_actual = scaler_y.inverse_transform(y_test_scaled.reshape(-1, 1)).flatten()
 
     # Calculate performance metrics
+    mae = mean_absolute_error(y_test_actual, y_pred)
     mse = mean_squared_error(y_test_actual, y_pred)
     r2 = r2_score(y_test_actual, y_pred)
 
     # Print performance metrics
+    print(f"Mean Absolute Error for {pollutant}: {mae:.2f}")
     print(f"Mean Squared Error for {pollutant}: {mse:.2f}")
     print(f"R-squared for {pollutant}: {r2:.2f}")
 

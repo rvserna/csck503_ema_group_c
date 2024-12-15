@@ -47,10 +47,10 @@ def rf_pollution(pollutant, include_other_pollutants=False, remove_outliers=Fals
     r2 = r2_score(y_test, y_pred)
 
     # Print performance metrics
-    print("Mean Absolute Error:", mae)
-    print("Mean Square Error: ", mse)
-    print("R^2 Score:", r2)
-
+    print(f"Mean Absolute Error for {pollutant}: {mae:.2f}")
+    print(f"Mean Squared Error for {pollutant}: {mse:.2f}")
+    print(f"R-squared for {pollutant}: {r2:.2f}")
+    
     # Get feature importances from the trained model
     feature_importances = rf_model.feature_importances_
 
