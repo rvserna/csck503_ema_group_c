@@ -2,7 +2,7 @@
 
 This library contains the supporting code for the Group C's EMA project.
 The goal is to test three different ML models to support the prediction of emissions:
-* Gradient Boosted Machine (GBM)
+* Gradient Boosting Machine (GBM)
 * Random Forest (RF)
 * Linear Regression
 
@@ -50,7 +50,7 @@ python data_parser.py
 
 Each model type can then be tested directly.
 ```bash
-python gradient_boosted_machine.py
+python gradient_boosting_machine.py
 python linear_regression.py
 python random_forest.py
 ```
@@ -61,7 +61,7 @@ All models support the following key word arguments:
     * include_other_pollutants: Whether or not the other three pollutants should be included as training features (default: False)
 
 ```python
-import gradient_boosted_machine as gbm
+import gradient_boosting_machine as gbm
 gbm.gbm_pollution("co2", include_outliers=True, include_other_pollutants=False)
 ```
 
